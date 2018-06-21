@@ -3,6 +3,8 @@ package com.zxj.imagevideobanner.banner;
 import android.media.MediaPlayer;
 import android.net.Uri;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Message;
 import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
 import android.support.v4.app.Fragment;
@@ -12,6 +14,7 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
+import android.widget.MediaController;
 import android.widget.VideoView;
 
 import com.bumptech.glide.Glide;
@@ -31,6 +34,36 @@ public class ImageVideoFragment extends Fragment {
     private FrameLayout waitLoading;
     private int currentPosition;
     private boolean playerPaused;
+    private String mUrl;
+    private final int STOP_PLAYER = 0x2000;
+    private final int START_PLAYER = 0x2001;
+    private final int PAUSE_PLAYER = 0x2002;
+    private final int SET_VIDEO_URL = 0x2003;
+
+    /**
+     * 使用Handler是为了避免出现ANR异常
+     */
+    private Handler handler = new Handler() {
+        @Override
+        public void handleMessage(Message msg) {
+            switch (msg.what) {
+                case STOP_PLAYER:
+                    stopPlayer();
+                    break;
+                case START_PLAYER:
+                    startPlayer();
+                    break;
+                case PAUSE_PLAYER:
+                    pausePlayer();
+                    break;
+                case SET_VIDEO_URL:
+                    setVideoUrl();
+                    startPlayer();
+                    break;
+            }
+            super.handleMessage(msg);
+        }
+    };
 
     @Override
     public void onCreate(@Nullable Bundle savedInstanceState) {
@@ -55,11 +88,11 @@ public class ImageVideoFragment extends Fragment {
                 view = LayoutInflater.from(getActivity()).inflate(R.layout.item_video_view, container, false);
                 mVideoView = view.findViewById(R.id.video_view);
                 waitLoading = view.findViewById(R.id.wait_loading_layout);
+                initData();
             }
         } else {
             view = LayoutInflater.from(getActivity()).inflate(R.layout.item_image_view, container, false);
         }
-        initData();
         return view;
     }
 
@@ -67,6 +100,9 @@ public class ImageVideoFragment extends Fragment {
 
         if (null != mVideoView) {
 //            mVideoView.setVideoPath(bannerBean.getUrl());
+            sendSetVideoUrlMsg();
+            mVideoView.setMediaController(new MediaController(getActivity()));
+            mVideoView.requestFocus();
             mVideoView.setVideoURI(Uri.parse(bannerBean.getUrl()));
             mVideoView.setOnCompletionListener(new MediaPlayer.OnCompletionListener() {
                 @Override
@@ -121,8 +157,15 @@ public class ImageVideoFragment extends Fragment {
                     return true;
                 }
             });
+//            startPlayer();
         }
-        startPlayer();
+    }
+
+    private void setVideoUrl() {
+        String url = bannerBean.getUrl();
+        mUrl = url;
+        //播放本地视频
+        mVideoView.setVideoURI(Uri.parse(url));
     }
 
     public void startPlayer() {
@@ -133,15 +176,17 @@ public class ImageVideoFragment extends Fragment {
     }
 
     public void circulationPlayer(){
-        if (null != mVideoView) {
+        /*if (null != mVideoView) {
             mVideoView.setVideoPath(bannerBean.getUrl());
             mVideoView.start();
-        }
+        }*/
+        sendStartVideoMsg(true);
     }
 
     private void stopPlayer() {
         if (null != mVideoView) {
             mVideoView.stopPlayback();
+            handler.removeCallbacksAndMessages(null);
         }
     }
 
@@ -160,24 +205,90 @@ public class ImageVideoFragment extends Fragment {
         }
     }
 
+    private void sendStartVideoMsg() {
+        sendStartVideoMsg(false);
+    }
+
+    private void sendStartVideoMsg(boolean isHasUrl) {
+        removeMessages();
+        if (!handler.hasMessages(START_PLAYER)) {
+            if (null != mVideoView) {
+                if (isHasUrl) {
+                    try {
+                        mVideoView.setVideoURI(Uri.parse(mUrl));
+                    } catch (Exception e) {
+                        e.printStackTrace();
+                    }
+                }
+                handler.sendEmptyMessage(START_PLAYER);
+            }
+        }
+    }
+
+    private void sendStopVideoMsg() {
+        removeMessages();
+        if (!handler.hasMessages(STOP_PLAYER)) {
+            if (null != mVideoView) {
+                handler.sendEmptyMessage(STOP_PLAYER);
+            }
+        }
+    }
+
+    private void sendPauseVideoMsg() {
+        removeMessages();
+        if (!handler.hasMessages(PAUSE_PLAYER)) {
+            if (null != mVideoView) {
+                handler.sendEmptyMessage(PAUSE_PLAYER);
+            }
+        }
+    }
+
+    private void sendSetVideoUrlMsg() {
+        removeMessages();
+        if (!handler.hasMessages(SET_VIDEO_URL)) {
+            if (null != mVideoView) {
+                Log.e(TAG, "sendSetVideoUrlMsg------");
+                handler.sendEmptyMessage(SET_VIDEO_URL);
+            }
+        }
+    }
+
+    private void removeMessages() {
+        if (handler.hasMessages(START_PLAYER)) {
+            handler.removeMessages(START_PLAYER);
+        }
+        if (handler.hasMessages(STOP_PLAYER)) {
+            handler.removeMessages(STOP_PLAYER);
+        }
+        if (handler.hasMessages(PAUSE_PLAYER)) {
+            handler.removeMessages(PAUSE_PLAYER);
+        }
+        if (handler.hasMessages(SET_VIDEO_URL)) {
+            handler.removeMessages(SET_VIDEO_URL);
+        }
+    }
+
     @Override
     public void onResume() {
         super.onResume();
         if(playerPaused){
-            startPlayer();
+//            startPlayer();
+            sendStartVideoMsg();
         }
     }
 
     @Override
     public void onPause() {
         super.onPause();
-        pausePlayer();
+//        pausePlayer();
+        sendPauseVideoMsg();
     }
 
     @Override
     public void onDestroy() {
         super.onDestroy();
-        stopPlayer();
+        //stopPlayer();
+        sendStopVideoMsg();
         Log.e(TAG, "onDestroy=" + bannerBean.getUrl());
     }
     public interface OnVideoCompletionListener {
